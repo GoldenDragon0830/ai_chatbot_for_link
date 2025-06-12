@@ -446,7 +446,7 @@ def ingest_website_to_pinecone(
     embedding_model='text-embedding-3-small',
     chunk_size=1500,
     overlap=200,
-    max_pages=30,
+    max_pages=20,
     max_chunks=2000,
     embedding_batch_size=100,
 ):
@@ -479,7 +479,7 @@ def ingest_website_to_pinecone(
     )
     split_docs = splitter.split_documents(docs)
     print(f"Split into {len(split_docs)} chunks.")
-    yield f'data: {{"step": 3, "message": "Splitting content into chunks"}}\n\n'
+    yield 'data: {"step": 3, "message": "Splitting content into chunks"}\n\n'
 
     if len(split_docs) > max_chunks:
         print(f"Too many chunks ({len(split_docs)}). Truncating to {max_chunks}.")
@@ -487,7 +487,7 @@ def ingest_website_to_pinecone(
 
     # Step 4
     print("Creating Pinecone index (if needed)...")
-    yield f'data: {{"step": 4, "message": "Preparing the AI database"}}\n\n'
+    yield 'data: {"step": 4, "message": "Preparing the AI database"}\n\n'
     dimension = 1536
     create_pinecone_index(
         api_key=PINECONE_KEY,
@@ -498,7 +498,7 @@ def ingest_website_to_pinecone(
 
     # Step 5
     print("Embedding and upserting to Pinecone...")
-    yield f'data: {{"step": 5, "message": "Adding your content to the AI"}}\n\n'
+    yield 'data: {"step": 5, "message": "Adding your content to the AI"}\n\n'
     
     embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY, model=embedding_model)
     from langchain.docstore.document import Document
@@ -517,7 +517,7 @@ def ingest_website_to_pinecone(
             print(f"Error embedding/upserting batch {i//embedding_batch_size}: {str(e)}")
             
 
-    yield f'data: {{"step": 6, "message": "Finalizing your chatbot"}}\n\n'
+    yield 'data: {"step": 6, "message": "Finalizing your chatbot"}\n\n'
     print(f'Ingestion complete. Pinecone index: {index_name}')
 
     created_at = datetime.now()
