@@ -1,92 +1,122 @@
+import { useState, useEffect } from "react";
 import { ChatInput } from "@/components/custom/chatinput";
-import { PreviewMessage, ThinkingMessage } from "../../components/custom/message";
-import { useScrollToBottom } from '@/components/custom/use-scroll-to-bottom';
-import { useState, useRef } from "react";
-import { message } from "../../interfaces/interfaces"
-import { Overview } from "@/components/custom/overview";
+import { PreviewMessage } from "../../components/custom/message";
 import { Header } from "@/components/custom/header";
-import {v4 as uuidv4} from 'uuid';
+import { message } from "@/interfaces/interfaces";
 
-const socket = new WebSocket("ws://localhost:8090"); //change to your websocket endpoint
 
-export function Chat() {
-  const [messagesContainerRef, messagesEndRef] = useScrollToBottom<HTMLDivElement>();
-  const [messages, setMessages] = useState<message[]>([]);
-  const [question, setQuestion] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-
-  const messageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
-
-  const cleanupMessageHandler = () => {
-    if (messageHandlerRef.current && socket) {
-      socket.removeEventListener("message", messageHandlerRef.current);
-      messageHandlerRef.current = null;
-    }
-  };
-
-async function handleSubmit(text?: string) {
-  if (!socket || socket.readyState !== WebSocket.OPEN || isLoading) return;
-
-  const messageText = text || question;
-  setIsLoading(true);
-  cleanupMessageHandler();
-  
-  const traceId = uuidv4();
-  setMessages(prev => [...prev, { content: messageText, role: "user", id: traceId }]);
-  socket.send(messageText);
-  setQuestion("");
-
-  try {
-    const messageHandler = (event: MessageEvent) => {
-      setIsLoading(false);
-      if(event.data.includes("[END]")) {
-        return;
-      }
-      
-      setMessages(prev => {
-        const lastMessage = prev[prev.length - 1];
-        const newContent = lastMessage?.role === "assistant" 
-          ? lastMessage.content + event.data 
-          : event.data;
-        
-        const newMessage = { content: newContent, role: "assistant", id: traceId };
-        return lastMessage?.role === "assistant"
-          ? [...prev.slice(0, -1), newMessage]
-          : [...prev, newMessage];
-      });
-
-      if (event.data.includes("[END]")) {
-        cleanupMessageHandler();
-      }
-    };
-
-    messageHandlerRef.current = messageHandler;
-    socket.addEventListener("message", messageHandler);
-  } catch (error) {
-    console.error("WebSocket error:", error);
-    setIsLoading(false);
-  }
+interface Chatbot {
+  created_at: string;
+  link: string;
+  name: string;
+  pinecone_index: string;
 }
 
+
+export function Chat() {
+  const [messages, setMessages] = useState<message[]>([]);
+  const [question, setQuestion] = useState<string>("");
+  const [chatbots, setChatbots] = useState<Chatbot[]>([]);
+  const [selectedChatbot, setSelectedChatbot] = useState<number>(0);
+
+  useEffect(() => {
+    fetch("http://85.209.93.93:4006/chatbot_list")
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.chatbots.length > 0) {
+          setChatbots(data.chatbots);
+          setSelectedChatbot(0); // Select first by default
+        }
+      });
+  }, []);
+
+  function cleanAIResponse(response?: string) {
+    if (!response) return "";
+    return response.replace("data: ", "").trim();
+  }
+
+  function handleSubmit(text?: string) {
+    const userText = text ?? question;
+    if (!userText.trim()) return;
+  
+    setMessages(prev => [
+      ...prev,
+      { content: userText, role: "user", id: String(prev.length) },
+      { content: "Loading...", role: "assistant", id: String(prev.length + 1) }
+    ]);
+    setQuestion("");
+  
+    const index = chatbots[selectedChatbot]?.pinecone_index;
+    if (!index) return;
+  
+    fetch(`http://85.209.93.93:4006/chat?message=${encodeURIComponent(userText)}&index=${encodeURIComponent(index)}`)
+      .then(res => res.text())
+      .then(text => {
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastAssistantIdx = updated.findIndex(
+            (msg, i) => msg.role === "assistant" && i === updated.length - 1
+          );
+          if (lastAssistantIdx !== -1) {
+            updated[lastAssistantIdx] = {
+              ...updated[lastAssistantIdx],
+              content: cleanAIResponse(text) || "No response from AI."
+            };
+          }
+          return updated;
+        });
+      })
+      .catch(() => {
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastAssistantIdx = updated.findIndex(
+            (msg, i) => msg.role === "assistant" && i === updated.length - 1
+          );
+          if (lastAssistantIdx !== -1) {
+            updated[lastAssistantIdx] = {
+              ...updated[lastAssistantIdx],
+              content: "Error: Failed to get AI response."
+            };
+          }
+          return updated;
+        });
+      });
+  }
+
   return (
-    <div className="flex flex-col min-w-0 h-dvh bg-background">
-      <Header/>
-      <div className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4" ref={messagesContainerRef}>
-        {messages.length == 0 && <Overview />}
-        {messages.map((message, index) => (
-          <PreviewMessage key={index} message={message} />
-        ))}
-        {isLoading && <ThinkingMessage />}
-        <div ref={messagesEndRef} className="shrink-0 min-w-[24px] min-h-[24px]"/>
+    <div className="flex flex-row min-w-0 h-dvh bg-background">
+      {/* Left sidebar for chatbot list */}
+      <div className="w-64 bg-gray-100 border-r flex flex-col">
+        <div className="p-4 font-bold">Chatbots</div>
+        <ul>
+          {chatbots.map((bot, idx) => (
+            <li
+              key={bot.pinecone_index}
+              className={`p-4 cursor-pointer ${selectedChatbot === idx ? "bg-blue-200 font-semibold" : ""}`}
+              onClick={() => setSelectedChatbot(idx)}
+            >
+              {bot.name}
+            </li>
+          ))}
+        </ul>
       </div>
-      <div className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
-        <ChatInput  
-          question={question}
-          setQuestion={setQuestion}
-          onSubmit={handleSubmit}
-          isLoading={isLoading}
-        />
+      {/* Main chat area */}
+      <div className="flex flex-col min-w-0 flex-1">
+        <Header />
+        <div className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4">
+          {messages.map((message, index) => (
+            <PreviewMessage key={index} message={message} />
+          ))}
+        </div>
+        <div className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
+          <ChatInput  
+            question={question}
+            setQuestion={setQuestion}
+            onSubmit={handleSubmit}
+            isLoading={false}
+          />
+        </div>
       </div>
     </div>
   );
-};
+}

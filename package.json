@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
     "serve": "serve dist -p 8501",
     "lint": "eslint .",
     "preview": "vite preview",
