@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChatInput } from "@/components/custom/chatinput";
 import { PreviewMessage } from "../../components/custom/message";
 import { Header } from "@/components/custom/header";
 import { message } from "@/interfaces/interfaces";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 
 interface Chatbot {
@@ -17,11 +17,14 @@ interface Chatbot {
 
 export function Chat() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [messages, setMessages] = useState<message[]>([]);
   const [question, setQuestion] = useState<string>("");
   const [chatbots, setChatbots] = useState<Chatbot[]>([]);
   const [selectedChatbot, setSelectedChatbot] = useState<number>(0);
   const [loading, setLoading] = useState(false)
+
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setLoading(true)
@@ -29,12 +32,14 @@ export function Chat() {
       .then(res => res.json())
       .then(data => {
         if (data.success && data.chatbots.length > 0) {
-          setChatbots(data.chatbots);
-          setSelectedChatbot(0); // Select first by default
+          setChatbots(data.chatbots);          
+
+          const safeIndex = data.chatbots.length - 1;
+          setSelectedChatbot(safeIndex)
         }
       })
       .finally(() => setLoading(false))
-  }, []);
+  }, [location.search]);
 
   // Fetch chat history when selectedChatbot changes
   useEffect(() => {
@@ -61,6 +66,12 @@ export function Chat() {
       .finally(() => setLoading(false))
   }, [selectedChatbot, chatbots]);
 
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollIntoView({ behavior: "smooth"});
+    }
+  }, [messages]);
+  
   function cleanAIResponse(response?: string) {
     if (!response) return "";
     return response.replace("data: ", "").trim();
@@ -154,6 +165,7 @@ export function Chat() {
           {messages.map((message, index) => (
             <PreviewMessage key={index} message={message} />
           ))}
+          <div ref={chatContainerRef}></div>
         </div>
         <div className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
           <ChatInput  

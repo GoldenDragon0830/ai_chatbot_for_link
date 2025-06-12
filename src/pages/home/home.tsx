@@ -48,18 +48,10 @@ export function Home() {
             `https://soundglide.com/backend/api/start/create_chatbot?website=${encodeURIComponent(website.trim())}&index=${encodeURIComponent(index)}&chatbot_name=${encodeURIComponent(chatbot_name)}`
         );
 
-        // es.onopen = () => {
-        //     // Send POST data via fetch, then listen via EventSource
-        //     fetch("http://85.209.93.93:4006/create_chatbot", {
-        //         method: "GET",
-        //         headers: { "Content-Type": "application/json" },
-        //         body: JSON.stringify({
-        //             website: website.trim(),
-        //             index,
-        //             chatbot_name,
-        //         }),
-        //     });
-        // };
+        let timeoutid = setTimeout(() => {
+            console.error('Timeout: No response from server.');
+            es.close();
+        }, 600000);
 
         es.addEventListener("done", (event) => {
             try {
@@ -75,6 +67,7 @@ export function Home() {
             }
         })
         es.onmessage = (event) => {
+            clearTimeout(timeoutid)
             try {
                 const data = JSON.parse(event.data);
                 if (data.message) {
