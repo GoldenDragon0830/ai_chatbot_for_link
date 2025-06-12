@@ -45,7 +45,7 @@ export function Home() {
         const { index, chatbot_name } = extractIndexAndName(website.trim());
 
         const es = new EventSource(
-            `http://85.209.93.93:4006/create_chatbot?website=${encodeURIComponent(website.trim())}&index=${encodeURIComponent(index)}&chatbot_name=${encodeURIComponent(chatbot_name)}`
+            `https://soundglide.com/backend/api/start/create_chatbot?website=${encodeURIComponent(website.trim())}&index=${encodeURIComponent(index)}&chatbot_name=${encodeURIComponent(chatbot_name)}`
         );
 
         // es.onopen = () => {
@@ -71,7 +71,7 @@ export function Home() {
                     navigate("/chat");
                 }
             } catch (e) {
-                
+
             }
         })
         es.onmessage = (event) => {
@@ -128,7 +128,7 @@ export function Home() {
         >
             {/* ... existing header and logo ... */}
             <img
-                src="/src/assets/images/Header.png"
+                src="/start/images/Header.png"
                 alt="header"
                 style={{
                     position: "absolute",

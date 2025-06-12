@@ -25,7 +25,7 @@ export function Chat() {
 
   useEffect(() => {
     setLoading(true)
-    fetch("http://85.209.93.93:4006/chatbot_list")
+    fetch("https://soundglide.com/backend/api/start/chatbot_list")
       .then(res => res.json())
       .then(data => {
         if (data.success && data.chatbots.length > 0) {
@@ -42,7 +42,7 @@ export function Chat() {
     const index_id = chatbots[selectedChatbot]?.pinecone_index;
     if (!index_id) return;
     setLoading(true)
-    fetch(`http://85.209.93.93:4006/history?index_id=${encodeURIComponent(index_id)}`)
+    fetch(`https://soundglide.com/backend/api/start/history?index_id=${encodeURIComponent(index_id)}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && Array.isArray(data.history)) {
@@ -80,7 +80,7 @@ export function Chat() {
     const index = chatbots[selectedChatbot]?.pinecone_index;
     if (!index) return;
   
-    fetch(`http://85.209.93.93:4006/chat?message=${encodeURIComponent(userText)}&index=${encodeURIComponent(index)}`)
+    fetch(`https://soundglide.com/backend/api/start/chat?message=${encodeURIComponent(userText)}&index=${encodeURIComponent(index)}`)
       .then(res => res.text())
       .then(text => {
         setMessages(prev => {

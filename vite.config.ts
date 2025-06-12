@@ -8,6 +8,7 @@ const __dirname = dirname(__filename)
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: "/start/",
   plugins: [react()],
   server: {
     port: 3000,
