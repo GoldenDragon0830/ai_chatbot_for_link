@@ -3,6 +3,8 @@ import { ChatInput } from "@/components/custom/chatinput";
 import { PreviewMessage } from "../../components/custom/message";
 import { Header } from "@/components/custom/header";
 import { message } from "@/interfaces/interfaces";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 
 interface Chatbot {
@@ -14,12 +16,15 @@ interface Chatbot {
 
 
 export function Chat() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<message[]>([]);
   const [question, setQuestion] = useState<string>("");
   const [chatbots, setChatbots] = useState<Chatbot[]>([]);
   const [selectedChatbot, setSelectedChatbot] = useState<number>(0);
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    setLoading(true)
     fetch("http://85.209.93.93:4006/chatbot_list")
       .then(res => res.json())
       .then(data => {
@@ -27,8 +32,34 @@ export function Chat() {
           setChatbots(data.chatbots);
           setSelectedChatbot(0); // Select first by default
         }
-      });
+      })
+      .finally(() => setLoading(false))
   }, []);
+
+  // Fetch chat history when selectedChatbot changes
+  useEffect(() => {
+    if (chatbots.length === 0) return;
+    const index_id = chatbots[selectedChatbot]?.pinecone_index;
+    if (!index_id) return;
+    setLoading(true)
+    fetch(`http://85.209.93.93:4006/history?index_id=${encodeURIComponent(index_id)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.history)) {
+          // Map backend history to your message format
+          const historyMessages = data.history.map((item : any) => ({
+            content: item.message,
+            role: item.sender,
+            id: String(item.id),
+          }));
+          setMessages(historyMessages);
+        } else {
+          setMessages([]);
+        }
+      })
+      .catch(() => setMessages([]))
+      .finally(() => setLoading(false))
+  }, [selectedChatbot, chatbots]);
 
   function cleanAIResponse(response?: string) {
     if (!response) return "";
@@ -99,10 +130,26 @@ export function Chat() {
             </li>
           ))}
         </ul>
+        {/* Bottom area for Go to Home button */}
+        <div className="mt-auto p-4">
+          <Button
+            className="w-full"
+            onClick={() => navigate("/")} // If using Next.js
+            // onClick={() => window.location.href = "/"} // If not using Next.js
+          >
+            Home
+          </Button>
+        </div>
       </div>
       {/* Main chat area */}
       <div className="flex flex-col min-w-0 flex-1">
         <Header />
+        {loading && (
+          <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
+          </div>
+        )}
+        
         <div className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4">
           {messages.map((message, index) => (
             <PreviewMessage key={index} message={message} />

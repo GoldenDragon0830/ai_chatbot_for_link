@@ -7,6 +7,7 @@ import time
 import requests
 import asyncio
 import logging
+import uuid
 from datetime import datetime
 from flask import jsonify
 from flask import Flask, request, Response, stream_with_context
@@ -214,6 +215,34 @@ def get_response(index: str, message: str):
         for key in chunk:
             if key == "answer":
                 all_content += chunk[key]
+
+    created_at = datetime.now() 
+    
+    if all_content is not None:
+        cursor.execute("SELECT COUNT(*) FROM chatting")
+        count = cursor.fetchone()[0]
+        user_id = count + 1
+        assistant_id = count + 2
+
+        cursor.execute(
+            """
+            INSERT INTO chatting (id, index_id, sender, message, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (user_id, index, "user", message, created_at)
+        )
+        
+        cursor.execute(
+            """
+            INSERT INTO chatting (id, index_id, sender, message, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (assistant_id, index, "assistant", all_content, created_at)
+        )
+
+        
+        conn.commit()
+        print("Inserted chatbot record into customchatbot table.")
     yield f'data: {all_content}\n\n'
 
 def extract_chunks(driver, min_length=100, max_length=500):
@@ -418,16 +447,19 @@ def ingest_website_to_pinecone(
     chunk_size=1500,
     overlap=200,
     max_pages=30,
-    max_chunks=2000,  # NEW: Hard cap, adjust as needed
+    max_chunks=2000,
     embedding_batch_size=100,
 ):
-    print('Discovering URLs...')
+    # Step 1
+    yield 'data: {"step": 1, "message": "Finding pages on your website"}\n\n'
+    print('Finding pages on your website')
     urls = get_internal_urls(website_url, max_pages=max_pages)
     print(f"Found {len(urls)} URLs to load.")
-
-    print('Loading & parsing pages...')
+    # Step 2
+    print('Loading and analyzing content')
     docs = []
-    for url in tqdm(urls):
+    yield 'data: {"step": 2, "message": "Loading and analyzing content"}\n\n'
+    for url in urls:
         try:
             loader = WebBaseLoader(
                 web_paths=[url],
@@ -436,10 +468,10 @@ def ingest_website_to_pinecone(
             )
             docs.extend(loader.load())
         except Exception as e:
-            print(f"Error loading {url}: {e}")
-
+            print(f'Error loading {url}: {str(e)}')
     print(f"Loaded {len(docs)} documents.")
 
+    # Step 3
     print("Chunking documents...")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -447,14 +479,16 @@ def ingest_website_to_pinecone(
     )
     split_docs = splitter.split_documents(docs)
     print(f"Split into {len(split_docs)} chunks.")
+    yield f'data: {{"step": 3, "message": "Splitting content into chunks"}}\n\n'
 
-    # Limit the number of chunks for embedding and upserting
     if len(split_docs) > max_chunks:
         print(f"Too many chunks ({len(split_docs)}). Truncating to {max_chunks}.")
         split_docs = split_docs[:max_chunks]
 
+    # Step 4
     print("Creating Pinecone index (if needed)...")
-    dimension = 1536  # For OpenAI text-embedding-3-small/large
+    yield f'data: {{"step": 4, "message": "Preparing the AI database"}}\n\n'
+    dimension = 1536
     create_pinecone_index(
         api_key=PINECONE_KEY,
         env=PINECONE_ENV,
@@ -462,15 +496,15 @@ def ingest_website_to_pinecone(
         dimension=dimension
     )
 
+    # Step 5
     print("Embedding and upserting to Pinecone...")
+    yield f'data: {{"step": 5, "message": "Adding your content to the AI"}}\n\n'
+    
     embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY, model=embedding_model)
-
-    # Batching manually for memory and API safety
     from langchain.docstore.document import Document
-    for i in tqdm(range(0, len(split_docs), embedding_batch_size)):
+    for i in range(0, len(split_docs), embedding_batch_size):
         batch_docs = split_docs[i:i+embedding_batch_size]
         try:
-            # This will embed and upsert this batch
             PineconeVectorStore.from_documents(
                 documents=batch_docs,
                 embedding=embeddings,
@@ -478,12 +512,15 @@ def ingest_website_to_pinecone(
                 namespace=PINECONE_NAMESPACE,
                 pinecone_api_key=PINECONE_KEY,
             )
+            print(f"Embedded/upserted batch {i // embedding_batch_size + 1} of {((len(split_docs)-1)//embedding_batch_size)+1}")
         except Exception as e:
-            print(f"Error embedding/upserting batch {i//embedding_batch_size}: {e}")
+            print(f"Error embedding/upserting batch {i//embedding_batch_size}: {str(e)}")
+            
 
+    yield f'data: {{"step": 6, "message": "Finalizing your chatbot"}}\n\n'
     print(f'Ingestion complete. Pinecone index: {index_name}')
 
-    created_at = datetime.now() 
+    created_at = datetime.now()
     if chatbot_name is not None:
         cursor.execute(
             """
@@ -495,8 +532,8 @@ def ingest_website_to_pinecone(
         conn.commit()
         print("Inserted chatbot record into customchatbot table.")
 
-    return index_name
-
+    yield f'event: done\ndata: {{"success": true, "index_name": "{index_name}"}}\n\n'
+    
 @app.route("/chat")
 def sse_request():
     """Handle chat requests."""
@@ -517,6 +554,27 @@ def get_chatbot_list():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
     
+@app.route("/history", methods=["GET"])
+def get_chatting_history():
+    index_id = request.args.get('index_id', '')
+    if not index_id:
+        return jsonify({"success": False, "error": "index_id is required"}), 400
+
+    try:
+        cursor.execute(
+            "SELECT * FROM chatting WHERE index_id = %s ORDER BY created_at ASC",
+            (index_id,)
+        )
+        rows = cursor.fetchall()
+        # Convert rows to dicts for JSON serialization
+        columns = [desc[0] for desc in cursor.description]
+        data = [dict(zip(columns, row)) for row in rows]
+
+        return jsonify({"success": True, "history": data})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500    
+
 # @app.route("/get_db_response")
 # def db_request():
 #     category = request.args.get('category', '')
@@ -527,26 +585,28 @@ def get_chatbot_list():
 
 #     return jsonify(result_data)
 
-@app.route("/create_chatbot", methods=["POST"])
+@app.route("/create_chatbot", methods=["GET"])
 def create_chatbot_request():
-    data = request.get_json()
-    website = data.get('website', '')
-    index_name = data.get('index', '')
-    chatbot_name = data.get('chatbot_name', '')
+    website = request.args.get('website', '')
+    index_name = request.args.get('index', '')
+    chatbot_name = request.args.get('chatbot_name', '')
 
     if not website or not index_name or not chatbot_name:
-        return jsonify({"error": "Missing 'website' or 'index' parameter"}), 400
+        return Response('data: {"error": "Missing parameters"}\n\n', mimetype="text/event-stream")
 
-    try:
-        created_index = ingest_website_to_pinecone(
-            website_url=website,
-            index_name=index_name,
-            chatbot_name=chatbot_name
-            # You can add/override other params here if needed
-        )
-        return jsonify({"success": True, "index_name": created_index}), 200
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    def stream():
+        try:
+            for update in ingest_website_to_pinecone(
+                website_url=website,
+                index_name=index_name,
+                chatbot_name=chatbot_name
+            ):
+                yield update
+        except Exception as e:
+            yield f'data: {{"error": "{str(e)}"}}\n\n'
+            yield f'event: done\ndata: {{"success": false}}\n\n'
+
+    return Response(stream_with_context(stream()), mimetype="text/event-stream")
     
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=PORT)
